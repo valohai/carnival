@@ -1,0 +1,6 @@
+[[service]]
+name = "env-test"
+command = "env"
+args = []
+replicas = 2
+restart = "no"

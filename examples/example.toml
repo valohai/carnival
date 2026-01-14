@@ -1,0 +1,54 @@
+# Carnival Example Configuration
+# This demonstrates the various features of Carnival process manager
+
+# Initialization commands run sequentially before services start
+# If any init command fails, Carnival exits immediately
+[[init]]
+command = "echo"
+args = ["Initializing Carnival..."]
+
+[[init]]
+command = "mkdir"
+args = ["-p", "${DATA_DIR:-/tmp/carnival-data}"]
+
+[[init]]
+command = "echo"
+args = ["Data directory created at ${DATA_DIR:-/tmp/carnival-data}"]
+
+# Services run in parallel after initialization
+# Each service can have multiple replicas
+
+[[service]]
+name = "echo-service"
+command = "sh"
+args = ["-c", "echo \"Service $CARNIVAL_SERVICE_NAME replica $CARNIVAL_REPLICA_ID/$CARNIVAL_REPLICA_COUNT started\"; sleep 5; echo \"Exiting normally\""]
+replicas = "${NUM_WORKERS:-2}"
+restart = "no"  # Run once, don't restart
+
+[[service]]
+name = "counter"
+command = "sh"
+args = ["-c", "i=1; while [ \"$i\" -le 10 ]; do echo \"$CARNIVAL_SERVICE_NAME[$CARNIVAL_REPLICA_ID]: Count $i\"; sleep 1; i=$((i+1)); done"]
+replicas = 1
+restart = "on-failure"  # Only restart if it fails
+restart-delay-ms = 2000
+restart-limit = 3  # Max 3 runs (initial + 2 restarts)
+
+[[service]]
+name = "failing-service"
+command = "bash"
+args = ["-c", "echo 'This service will fail'; exit 1"]
+replicas = 1
+restart = "on-failure"
+restart-delay-ms = 1000
+restart-limit = 2  # Try twice then give up
+
+# Example of a long-running service (commented out by default)
+# [[service]]
+# name = "webserver"
+# command = "python3"
+# args = ["-m", "http.server", "${PORT:-8000}"]
+# replicas = 1
+# restart = "always"  # Always restart if it exits
+# restart-delay-ms = 1000
+# working-dir = "/tmp"

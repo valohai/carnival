@@ -1,0 +1,51 @@
+[project]
+name = "vh-carnival"
+authors = [
+    { name = "Aarni Koskela", email = "akx@iki.fi" }
+]
+requires-python = ">=3.12"
+dependencies = []
+dynamic = ["version"]
+
+[project.scripts]
+carnival = "carnival.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/carnival/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/carnival"]
+
+[tool.hatch.build.targets.sdist]
+packages = ["src/carnival", "tests"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.11",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "syrupy>=5.0.0",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = [
+    "B",
+    "I",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+log_level = "INFO"
