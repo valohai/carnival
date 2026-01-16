@@ -32,6 +32,7 @@ replicas = "${NUM_WORKERS:-2}"
 restart = "always"
 restart-delay-ms = "${RESTART_DELAY:-1000}"  # or restart_delay_ms
 restart-limit = 0  # 0 = unlimited (default); or restart_limit
+stop-timeout-ms = 10000  # How long to give the process before SIGKILLing; or stop_timeout_ms
 ```
 
 **Note:** Field names accept both `kebab-case` and `snake_case`.

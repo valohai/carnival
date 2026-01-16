@@ -116,6 +116,7 @@ class ProcessReplica:
                 cwd=self.config.working_dir,
                 stdout=(asyncio.subprocess.PIPE if redirect_output else None),
                 stderr=(asyncio.subprocess.PIPE if redirect_output else None),
+                start_new_session=True,
             )
 
         except Exception as e:  # pragma: no cover
@@ -168,21 +169,27 @@ class ProcessReplica:
         raise ValueError("Invalid restart policy")  # pragma: no cover
 
     async def _terminate_process(self, replica_str: str) -> None:
-        """Gracefully terminate the process."""
+        """Gracefully terminate the process and its process group."""
         if self.process is None or self.process.returncode is not None:  # pragma: no cover
             return
 
-        logger.info(f"Terminating {replica_str} (PID {self.process.pid})")
+        pid = self.process.pid
+        logger.info(f"Terminating {replica_str} (PID {pid})")
 
         try:
-            self.process.terminate()
-            # Wait up to 5 seconds for graceful shutdown
+            # Send SIGTERM to the entire process group (since we use start_new_session=True,
+            # the child is the process group leader and its PID equals the PGID)
+            os.killpg(pid, signal.SIGTERM)
+            # Wait for graceful shutdown
+            stop_timeout = self.config.stop_timeout_ms / 1000.0
             try:
-                await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                await asyncio.wait_for(self.process.wait(), timeout=stop_timeout)
                 logger.debug(f"{replica_str} terminated gracefully")
             except asyncio.TimeoutError:
-                logger.warning(f"{replica_str} did not terminate, sending SIGKILL")
-                self.process.kill()
+                logger.warning(f"{replica_str} did not terminate, sending SIGKILL to process group")
+                os.killpg(pid, signal.SIGKILL)
                 await self.process.wait()
+        except ProcessLookupError:  # Process already exited
+            logger.debug(f"{replica_str} already exited")
         except Exception as e:  # pragma: no cover
             logger.exception(f"Error terminating {replica_str}: {e}")

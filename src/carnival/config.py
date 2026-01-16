@@ -60,6 +60,7 @@ class ServiceConfig:
     restart: RestartPolicy = RestartPolicy.NO
     restart_delay_ms: int = 1000
     restart_limit: int = 0  # 0 = unlimited
+    stop_timeout_ms: int = 10_000  # Timeout for graceful shutdown before SIGKILL
     working_dir: str | None = None
     critical: bool = False
 
@@ -78,6 +79,7 @@ class ServiceConfig:
                 "restart": RestartPolicy(expand_env(normalized.pop("restart", "no"))),
                 "restart_delay_ms": expand_env_int_if_set(normalized.pop("restart_delay_ms", None)),
                 "restart_limit": expand_env_int_if_set(normalized.pop("restart_limit", None)),
+                "stop_timeout_ms": expand_env_int_if_set(normalized.pop("stop_timeout_ms", None)),
                 "working_dir": expand_env_if_set(normalized.pop("working_dir", None)),
                 "critical": bool(normalized.pop("critical", None)),
             }

@@ -1,5 +1,6 @@
 import asyncio
 import shlex
+import signal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -141,17 +142,15 @@ async def test_process_termination(basic_service_config, shutdown_event):
     mock_process = MagicMock()
     mock_process.returncode = None  # Still running
     mock_process.pid = 12345
-    mock_process.terminate = MagicMock()
-    mock_process.kill = MagicMock()
     mock_process.wait = AsyncMock(return_value=None)
 
     replica.process = mock_process
 
-    await replica._terminate_process("test[0]")
+    with patch("carnival.process.os.killpg") as mock_killpg:
+        await replica._terminate_process("test[0]")
 
-    # Verify terminate was called
-    mock_process.terminate.assert_called_once()
-    mock_process.wait.assert_called()
+        mock_killpg.assert_called_once_with(12345, signal.SIGTERM)
+        mock_process.wait.assert_called()
 
 
 @pytest.mark.asyncio
@@ -162,8 +161,6 @@ async def test_process_termination_timeout(basic_service_config, shutdown_event)
     mock_process = MagicMock()
     mock_process.returncode = None
     mock_process.pid = 12345
-    mock_process.terminate = MagicMock()
-    mock_process.kill = MagicMock()
 
     # Make wait timeout then succeed
     wait_call_count = 0
@@ -179,8 +176,9 @@ async def test_process_termination_timeout(basic_service_config, shutdown_event)
 
     replica.process = mock_process
 
-    await replica._terminate_process("test[0]")
+    with patch("carnival.process.os.killpg") as mock_killpg:
+        await replica._terminate_process("test[0]")
 
-    # Verify kill was called after timeout
-    mock_process.terminate.assert_called_once()
-    mock_process.kill.assert_called_once()
+        assert mock_killpg.call_count == 2
+        mock_killpg.assert_any_call(12345, signal.SIGTERM)
+        mock_killpg.assert_any_call(12345, signal.SIGKILL)
