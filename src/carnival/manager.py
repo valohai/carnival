@@ -20,6 +20,12 @@ class RunningReplica:
     replica: ProcessReplica
 
 
+class AsyncioEventWithSignalData(asyncio.Event):
+    """An asyncio Event that also stores the last signal received."""
+
+    last_signal_received: signal.Signals | None = None
+
+
 class CarnivalManager:
     """Orchestrates initialization, service management, and shutdown."""
 
@@ -27,19 +33,19 @@ class CarnivalManager:
 
     def __init__(self, config: CarnivalConfig):
         self.config = config
-        self.shutdown_event = asyncio.Event()
+        self.shutdown_event = AsyncioEventWithSignalData()
         self.running_replicas: list[RunningReplica] = []
 
     def signal_handler(self, sig: signal.Signals) -> None:
-        logger.info(f"Received signal {sig.name}, initiating graceful shutdown")
         self.shutdown_event.set()
+        self.shutdown_event.last_signal_received = sig
 
     async def run(self) -> int:
         loop = asyncio.get_event_loop()
 
         if self.setup_signal_handlers:  # pragma: no cover
-            loop.add_signal_handler(signal.SIGTERM, self.signal_handler, signal.SIGTERM)
-            loop.add_signal_handler(signal.SIGINT, self.signal_handler, signal.SIGINT)
+            for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                loop.add_signal_handler(sig, self.signal_handler, sig)
 
         # Phase 1: Run initialization commands sequentially
         try:
@@ -61,6 +67,11 @@ class CarnivalManager:
         await self._monitor_services()
 
         # Phase 4: Graceful shutdown
+        if self.shutdown_event.last_signal_received:
+            logger.info(
+                "Shutdown requested via signal: %s",
+                self.shutdown_event.last_signal_received.name,
+            )
         logger.info("Shutting down services")
         await self._shutdown_services()
 

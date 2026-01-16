@@ -69,7 +69,7 @@ async def test_interrupt_signal(long_running_config, caplog):
     # Should complete successfully
     assert exit_code == 0
     assert "Starting service replica: sleepy-service[0]" in caplog.text
-    assert "Received signal SIGINT" in caplog.text
+    assert "Shutdown requested via signal: SIGINT" in caplog.text
 
 
 @pytest.mark.asyncio
