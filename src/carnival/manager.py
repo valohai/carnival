@@ -41,7 +41,7 @@ class CarnivalManager:
         self.shutdown_event.last_signal_received = sig
 
     async def run(self) -> int:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if self.setup_signal_handlers:  # pragma: no cover
             for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
