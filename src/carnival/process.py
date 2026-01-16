@@ -130,6 +130,7 @@ class ProcessReplica:
                 *self.config.args,
                 env=env,
                 cwd=self.config.working_dir,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=(asyncio.subprocess.PIPE if redirect_output else None),
                 stderr=(asyncio.subprocess.PIPE if redirect_output else None),
                 start_new_session=True,
