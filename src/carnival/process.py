@@ -3,10 +3,26 @@
 import asyncio
 import logging
 import os
+import signal
 
 from carnival.config import ServiceConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _format_exit_status(returncode: int | None) -> str:
+    """Format a process exit status for logging."""
+    if returncode is None:
+        return "still running"
+    if returncode < 0:
+        # Negative returncode means killed by signal
+        sig_num = -returncode
+        try:
+            sig_name = signal.Signals(sig_num).name
+            return f"killed by {sig_name}"
+        except ValueError:
+            return f"killed by signal {sig_num}"
+    return f"exited with code {returncode}"
 
 
 async def _forward_stream(
@@ -71,13 +87,13 @@ class ProcessReplica:
 
             if not self._should_restart(exit_code):
                 logger.info(
-                    f"{replica_str} exited with code {exit_code}, not restarting (policy: {self.config.restart})"
+                    f"{replica_str} {_format_exit_status(exit_code)}, not restarting (policy: {self.config.restart})"
                 )
                 break
 
             self.restart_count += 1
             logger.info(
-                f"{replica_str} exited with code {exit_code}, "
+                f"{replica_str} {_format_exit_status(exit_code)}, "
                 f"restarting in {self.config.restart_delay_ms}ms "
                 f"(restart {self.restart_count})"
             )
