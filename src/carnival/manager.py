@@ -3,12 +3,12 @@
 import asyncio
 import dataclasses
 import logging
-import shlex
 import signal
 import subprocess
 import time
 
-from carnival.config import CarnivalConfig
+from carnival.async_utils import wait_for_process_or_event
+from carnival.config import CarnivalConfig, InitCommand
 from carnival.process import ProcessReplica
 
 logger = logging.getLogger(__name__)
@@ -75,13 +75,35 @@ class CarnivalManager:
             True if all commands succeeded; will raise on failure.
         """
         for i, init_cmd in enumerate(self.config.init_commands, 1):
-            args = [init_cmd.command, *init_cmd.args]
-            logger.info("Running init command %d: %s", i, shlex.join(args))
             t0 = time.time()
-            subprocess.run(args, check=True, cwd=init_cmd.working_dir)
+            logger.info("Running init command %d: %s", i, init_cmd.as_command_line())
+            await self._handle_run_init_command(init_cmd)
             t1 = time.time()
             logger.info("Init command %d finished in %.2f seconds", i, t1 - t0)
         return True
+
+    async def _handle_run_init_command(self, init_cmd: InitCommand):
+        proc = await asyncio.create_subprocess_exec(
+            init_cmd.command,
+            *init_cmd.args,
+            cwd=init_cmd.working_dir,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+
+        await wait_for_process_or_event(proc, self.shutdown_event)
+
+        # If shutdown was triggered during init, terminate and raise
+        if self.shutdown_event.is_set():
+            if proc.returncode is None:
+                proc.terminate()
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+            raise InterruptedError("Shutdown requested during initialization")
+        if proc.returncode:
+            raise subprocess.CalledProcessError(proc.returncode, init_cmd.as_command_line())
 
     async def _start_services(self) -> None:
         """Start all service replicas."""

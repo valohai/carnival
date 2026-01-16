@@ -1,6 +1,7 @@
 """Configuration parsing and validation for Carnival."""
 
 import logging
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -47,6 +48,9 @@ class InitCommand:
             args=args,
             working_dir=working_dir,
         )
+
+    def as_command_line(self) -> str:
+        return shlex.join([self.command, *self.args])
 
 
 @dataclass(frozen=True, kw_only=True)
