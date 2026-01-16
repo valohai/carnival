@@ -185,12 +185,14 @@ class CarnivalManager:
         # Set shutdown event (in case not already set)
         self.shutdown_event.set()
 
+        shutdown_timeout = self.config.global_config.shutdown_timeout_ms / 1000.0
+
         # Wait for all tasks to complete with timeout
         logger.info("Waiting for services to exit gracefully")
         try:
             await asyncio.wait_for(
                 asyncio.gather(*self.replica_tasks, return_exceptions=True),
-                timeout=10.0,
+                timeout=shutdown_timeout,
             )
             logger.info("All services exited")
         except asyncio.TimeoutError:
@@ -202,5 +204,5 @@ class CarnivalManager:
             # Wait a bit for cancellations
             await asyncio.wait_for(
                 asyncio.gather(*self.replica_tasks, return_exceptions=True),
-                timeout=10.0,
+                timeout=2.0,
             )

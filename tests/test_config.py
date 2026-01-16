@@ -5,6 +5,9 @@ import pytest
 from carnival.config import CarnivalConfig, RestartPolicy
 
 complex_config_content = """
+[global]
+shutdown-timeout-ms = 5000
+
 [[init]]
 command = "mkdir"
 args = ["-p", "/data"]
@@ -39,6 +42,8 @@ def test_complex_config(tmp_path, snapshot, monkeypatch):
     config_path = tmp_path / "complex.toml"
     config_path.write_text(complex_config_content)
     config = CarnivalConfig.from_file(config_path)
+
+    assert snapshot(name="global") == config.global_config
     assert snapshot(name="init") == config.init_commands
     assert snapshot(name="srv") == config.services
 
@@ -56,25 +61,26 @@ def test_complex_config(tmp_path, snapshot, monkeypatch):
     assert worker.working_dir == "/app"
 
 
-def test_extra_init_fields_fail(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param(
+            '[[init]]\ncommand = "mkdir"\nextraneous = "fail"',
+            id="init",
+        ),
+        pytest.param(
+            '[[service]]\nname = "x"\ncommand = "y"\nextraneous = "fail"',
+            id="service",
+        ),
+        pytest.param(
+            '[global]\nextraneous = "fail"',
+            id="global",
+        ),
+    ],
+)
+def test_extra_fields_fail(tmp_path, case):
+    """Test that unknown fields in config sections raise an error."""
     config_path = tmp_path / "config.toml"
-    config_path.write_text("""
-[[init]]
-command = "mkdir"
-args = ["-p", "/data"]
-extraneous = "should cause failure"
-    """)
-    with pytest.raises(ValueError):
-        CarnivalConfig.from_file(config_path)
-
-
-def test_extra_service_fields_fail(tmp_path, monkeypatch):
-    config_path = tmp_path / "config.toml"
-    config_path.write_text("""
-[[service]]
-name = "worker"
-command = "python"
-extraneous = "should cause failure"
-    """)
-    with pytest.raises(ValueError):
+    config_path.write_text(case)
+    with pytest.raises(ValueError, match="Unknown fields"):
         CarnivalConfig.from_file(config_path)
