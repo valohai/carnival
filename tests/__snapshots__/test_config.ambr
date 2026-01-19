@@ -1,4 +1,7 @@
 # serializer version: 1
+# name: test_complex_config[global]
+  GlobalConfig(shutdown_timeout_ms=5000)
+# ---
 # name: test_complex_config[init]
   list([
     InitCommand(command='mkdir', args=['-p', '/data'], working_dir=None),
@@ -7,7 +10,7 @@
 # ---
 # name: test_complex_config[srv]
   list([
-    ServiceConfig(name='webserver', command='python', args=['-m', 'http.server', '8080'], replicas=2, restart=<RestartPolicy.ALWAYS: 'always'>, restart_delay_ms=1500, restart_limit=0, working_dir=None, critical=False),
-    ServiceConfig(name='worker', command='python', args=['worker.py'], replicas=1, restart=<RestartPolicy.ON_FAILURE: 'on-failure'>, restart_delay_ms=1000, restart_limit=3, working_dir='/app', critical=False),
+    ServiceConfig(name='webserver', command='python', args=['-m', 'http.server', '8080'], replicas=2, restart=<RestartPolicy.ALWAYS: 'always'>, restart_delay_ms=1500, restart_limit=0, stop_timeout_ms=10000, working_dir=None, critical=False),
+    ServiceConfig(name='worker', command='python', args=['worker.py'], replicas=1, restart=<RestartPolicy.ON_FAILURE: 'on-failure'>, restart_delay_ms=1000, restart_limit=3, stop_timeout_ms=10000, working_dir='/app', critical=False),
   ])
 # ---

@@ -3,10 +3,27 @@
 import asyncio
 import logging
 import os
+import signal
 
+from carnival.async_utils import kill_process_group
 from carnival.config import ServiceConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _format_exit_status(returncode: int | None) -> str:
+    """Format a process exit status for logging."""
+    if returncode is None:
+        return "still running"
+    if returncode < 0:
+        # Negative returncode means killed by signal
+        sig_num = -returncode
+        try:
+            sig_name = signal.Signals(sig_num).name
+            return f"killed by {sig_name}"
+        except ValueError:
+            return f"killed by signal {sig_num}"
+    return f"exited with code {returncode}"
 
 
 async def _forward_stream(
@@ -71,15 +88,15 @@ class ProcessReplica:
 
             if not self._should_restart(exit_code):
                 logger.info(
-                    f"{replica_str} exited with code {exit_code}, not restarting (policy: {self.config.restart})"
+                    f"{replica_str} {_format_exit_status(exit_code)}, not restarting (policy: {self.config.restart})",
                 )
                 break
 
             self.restart_count += 1
             logger.info(
-                f"{replica_str} exited with code {exit_code}, "
+                f"{replica_str} {_format_exit_status(exit_code)}, "
                 f"restarting in {self.config.restart_delay_ms}ms "
-                f"(restart {self.restart_count})"
+                f"(restart {self.restart_count})",
             )
 
             if self.config.restart_delay_ms:
@@ -90,7 +107,7 @@ class ProcessReplica:
                     )
                     # If we get here, shutdown was triggered
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Timeout is expected, continue to restart
                     pass
 
@@ -99,7 +116,7 @@ class ProcessReplica:
             self.shutdown_event.set()
 
     async def _start_process(self, replica_str: str) -> int:
-        """Start the process and wait for it to complete."""
+        """Start the process and wait for it to complete, return its exit code."""
         env = os.environ.copy()
         env["CARNIVAL_SERVICE_NAME"] = self.config.name
         env["CARNIVAL_REPLICA_ID"] = str(self.replica_id)
@@ -114,13 +131,15 @@ class ProcessReplica:
                 *self.config.args,
                 env=env,
                 cwd=self.config.working_dir,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=(asyncio.subprocess.PIPE if redirect_output else None),
                 stderr=(asyncio.subprocess.PIPE if redirect_output else None),
+                start_new_session=True,
             )
 
         except Exception as e:  # pragma: no cover
             logger.exception(f"{replica_str} failed to start: {e}")
-            return -1
+            return 70  # EX_SOFTWARE
 
         logger.debug(f"{replica_str} started with PID {self.process.pid}")
 
@@ -132,7 +151,7 @@ class ProcessReplica:
             stdout_task = stderr_task = None
 
         # Wait for process to complete or shutdown event
-        done, pending = await asyncio.wait(
+        _done, pending = await asyncio.wait(
             [
                 asyncio.create_task(self.process.wait()),
                 asyncio.create_task(self.shutdown_event.wait()),
@@ -168,21 +187,12 @@ class ProcessReplica:
         raise ValueError("Invalid restart policy")  # pragma: no cover
 
     async def _terminate_process(self, replica_str: str) -> None:
-        """Gracefully terminate the process."""
+        """Gracefully terminate the process and its process group."""
         if self.process is None or self.process.returncode is not None:  # pragma: no cover
             return
 
-        logger.info(f"Terminating {replica_str} (PID {self.process.pid})")
-
-        try:
-            self.process.terminate()
-            # Wait up to 5 seconds for graceful shutdown
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=5.0)
-                logger.debug(f"{replica_str} terminated gracefully")
-            except asyncio.TimeoutError:
-                logger.warning(f"{replica_str} did not terminate, sending SIGKILL")
-                self.process.kill()
-                await self.process.wait()
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Error terminating {replica_str}: {e}")
+        await kill_process_group(
+            self.process,
+            description=replica_str,
+            stop_timeout=(self.config.stop_timeout_ms / 1000.0),
+        )

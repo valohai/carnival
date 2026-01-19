@@ -69,7 +69,7 @@ async def test_interrupt_signal(long_running_config, caplog):
     # Should complete successfully
     assert exit_code == 0
     assert "Starting service replica: sleepy-service[0]" in caplog.text
-    assert "Received signal SIGINT" in caplog.text
+    assert "Shutdown requested via signal: SIGINT" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -104,7 +104,7 @@ async def test_run_init_failure_exits(tmp_path):
                 args=[str(run_canary)],
                 replicas=1,
                 restart=RestartPolicy.NO,
-            )
+            ),
         ],
     )
 
@@ -113,3 +113,21 @@ async def test_run_init_failure_exits(tmp_path):
     assert exit_code == 1
     assert not init_canary.exists(), "Last init command should not have run"
     assert not run_canary.exists(), "Service should not have started due to init failure"
+
+
+@pytest.mark.asyncio
+async def test_init_command_interrupted_by_shutdown(caplog):
+    """Test that long-running init command is terminated on shutdown signal."""
+    config = CarnivalConfig(
+        init_commands=[InitCommand(command="sleep", args=["60"])],
+        services=[],
+    )
+    manager = CarnivalManager(config)
+
+    task = asyncio.create_task(manager.run())
+    await asyncio.sleep(0.2)  # Let init command start
+    manager.signal_handler(Signals.SIGTERM)  # Trigger shutdown
+    exit_code = await asyncio.wait_for(task, timeout=5.0)
+
+    assert exit_code == 1  # Should fail due to interrupted init
+    assert "Shutdown requested during initialization" in caplog.text

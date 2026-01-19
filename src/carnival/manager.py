@@ -3,12 +3,12 @@
 import asyncio
 import dataclasses
 import logging
-import shlex
 import signal
 import subprocess
 import time
 
-from carnival.config import CarnivalConfig
+from carnival.async_utils import kill_process_group, wait_for_process_or_event
+from carnival.config import CarnivalConfig, InitCommand
 from carnival.process import ProcessReplica
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,12 @@ class RunningReplica:
     replica: ProcessReplica
 
 
+class AsyncioEventWithSignalData(asyncio.Event):
+    """An asyncio Event that also stores the last signal received."""
+
+    last_signal_received: signal.Signals | None = None
+
+
 class CarnivalManager:
     """Orchestrates initialization, service management, and shutdown."""
 
@@ -27,19 +33,19 @@ class CarnivalManager:
 
     def __init__(self, config: CarnivalConfig):
         self.config = config
-        self.shutdown_event = asyncio.Event()
+        self.shutdown_event = AsyncioEventWithSignalData()
         self.running_replicas: list[RunningReplica] = []
 
     def signal_handler(self, sig: signal.Signals) -> None:
-        logger.info(f"Received signal {sig.name}, initiating graceful shutdown")
         self.shutdown_event.set()
+        self.shutdown_event.last_signal_received = sig
 
     async def run(self) -> int:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if self.setup_signal_handlers:  # pragma: no cover
-            loop.add_signal_handler(signal.SIGTERM, self.signal_handler, signal.SIGTERM)
-            loop.add_signal_handler(signal.SIGINT, self.signal_handler, signal.SIGINT)
+            for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                loop.add_signal_handler(sig, self.signal_handler, sig)
 
         # Phase 1: Run initialization commands sequentially
         try:
@@ -61,6 +67,11 @@ class CarnivalManager:
         await self._monitor_services()
 
         # Phase 4: Graceful shutdown
+        if self.shutdown_event.last_signal_received:
+            logger.info(
+                "Shutdown requested via signal: %s",
+                self.shutdown_event.last_signal_received.name,
+            )
         logger.info("Shutting down services")
         await self._shutdown_services()
 
@@ -75,13 +86,31 @@ class CarnivalManager:
             True if all commands succeeded; will raise on failure.
         """
         for i, init_cmd in enumerate(self.config.init_commands, 1):
-            args = [init_cmd.command, *init_cmd.args]
-            logger.info("Running init command %d: %s", i, shlex.join(args))
             t0 = time.time()
-            subprocess.run(args, check=True, cwd=init_cmd.working_dir)
+            logger.info("Running init command %d: %s", i, init_cmd.as_command_line())
+            await self._handle_run_init_command(init_cmd)
             t1 = time.time()
             logger.info("Init command %d finished in %.2f seconds", i, t1 - t0)
         return True
+
+    async def _handle_run_init_command(self, init_cmd: InitCommand):
+        proc = await asyncio.create_subprocess_exec(
+            init_cmd.command,
+            *init_cmd.args,
+            cwd=init_cmd.working_dir,
+            stdin=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+        await wait_for_process_or_event(proc, self.shutdown_event)
+
+        # If shutdown was triggered during init, terminate and raise
+        if self.shutdown_event.is_set():
+            if proc.returncode is None:
+                await kill_process_group(proc, description=str(init_cmd), stop_timeout=5.0)
+            raise InterruptedError("Shutdown requested during initialization")
+        if proc.returncode:
+            raise subprocess.CalledProcessError(proc.returncode, init_cmd.as_command_line())
 
     async def _start_services(self) -> None:
         """Start all service replicas."""
@@ -115,7 +144,7 @@ class CarnivalManager:
 
         try:
             # Wait for first completion
-            done, pending = await asyncio.wait(tasks_with_shutdown, return_when=asyncio.FIRST_COMPLETED)
+            done, _pending = await asyncio.wait(tasks_with_shutdown, return_when=asyncio.FIRST_COMPLETED)
 
             # Check if shutdown was triggered
             if shutdown_task in done:
@@ -152,15 +181,17 @@ class CarnivalManager:
         # Set shutdown event (in case not already set)
         self.shutdown_event.set()
 
+        shutdown_timeout = self.config.global_config.shutdown_timeout_ms / 1000.0
+
         # Wait for all tasks to complete with timeout
         logger.info("Waiting for services to exit gracefully")
         try:
             await asyncio.wait_for(
                 asyncio.gather(*self.replica_tasks, return_exceptions=True),
-                timeout=10.0,
+                timeout=shutdown_timeout,
             )
             logger.info("All services exited")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Timeout waiting for services to exit")
             # Cancel any remaining tasks
             for task in self.replica_tasks:
@@ -169,5 +200,5 @@ class CarnivalManager:
             # Wait a bit for cancellations
             await asyncio.wait_for(
                 asyncio.gather(*self.replica_tasks, return_exceptions=True),
-                timeout=10.0,
+                timeout=2.0,
             )

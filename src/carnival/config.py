@@ -1,6 +1,7 @@
 """Configuration parsing and validation for Carnival."""
 
 import logging
+import shlex
 import tomllib
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -48,6 +49,9 @@ class InitCommand:
             working_dir=working_dir,
         )
 
+    def as_command_line(self) -> str:
+        return shlex.join([self.command, *self.args])
+
 
 @dataclass(frozen=True, kw_only=True)
 class ServiceConfig:
@@ -60,6 +64,7 @@ class ServiceConfig:
     restart: RestartPolicy = RestartPolicy.NO
     restart_delay_ms: int = 1000
     restart_limit: int = 0  # 0 = unlimited
+    stop_timeout_ms: int = 10_000  # Timeout for graceful shutdown before SIGKILL
     working_dir: str | None = None
     critical: bool = False
 
@@ -78,9 +83,10 @@ class ServiceConfig:
                 "restart": RestartPolicy(expand_env(normalized.pop("restart", "no"))),
                 "restart_delay_ms": expand_env_int_if_set(normalized.pop("restart_delay_ms", None)),
                 "restart_limit": expand_env_int_if_set(normalized.pop("restart_limit", None)),
+                "stop_timeout_ms": expand_env_int_if_set(normalized.pop("stop_timeout_ms", None)),
                 "working_dir": expand_env_if_set(normalized.pop("working_dir", None)),
                 "critical": bool(normalized.pop("critical", None)),
-            }
+            },
         )
 
         if normalized:
@@ -95,9 +101,30 @@ class ServiceConfig:
 
 
 @dataclass(frozen=True, kw_only=True)
+class GlobalConfig:
+    """Global configuration options."""
+
+    shutdown_timeout_ms: int = 10_000  # Overall shutdown timeout before force-killing tasks
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Create GlobalConfig from TOML dictionary."""
+        normalized = _normalize_keys(data)
+        optionals = compact_dict_nones(
+            {
+                "shutdown_timeout_ms": expand_env_int_if_set(normalized.pop("shutdown_timeout_ms", None)),
+            },
+        )
+        if normalized:
+            raise ValueError(f"Unknown fields in global config: {sorted(normalized)}")
+        return cls(**optionals)
+
+
+@dataclass(frozen=True, kw_only=True)
 class CarnivalConfig:
     """Complete Carnival configuration."""
 
+    global_config: GlobalConfig = field(default_factory=GlobalConfig)
     init_commands: list[InitCommand] = field(default_factory=list)
     services: list[ServiceConfig] = field(default_factory=list)
 
@@ -112,10 +139,15 @@ class CarnivalConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
         """Create CarnivalConfig from parsed TOML dictionary."""
+        global_config = GlobalConfig.from_dict(data.get("global", {}))
         init_commands = [InitCommand.from_dict(cmd) for cmd in data.get("init", [])]
         services = [ServiceConfig.from_dict(svc) for svc in data.get("service", [])]
 
-        return cls(init_commands=init_commands, services=services)
+        return cls(
+            global_config=global_config,
+            init_commands=init_commands,
+            services=services,
+        )
 
 
 def _normalize_keys(data: dict[str, Any]) -> dict[str, Any]:
