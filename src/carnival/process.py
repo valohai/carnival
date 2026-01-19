@@ -115,7 +115,7 @@ class ProcessReplica:
             self.shutdown_event.set()
 
     async def _start_process(self, replica_str: str) -> int:
-        """Start the process and wait for it to complete."""
+        """Start the process and wait for it to complete, return its exit code."""
         env = os.environ.copy()
         env["CARNIVAL_SERVICE_NAME"] = self.config.name
         env["CARNIVAL_REPLICA_ID"] = str(self.replica_id)
@@ -138,7 +138,7 @@ class ProcessReplica:
 
         except Exception as e:  # pragma: no cover
             logger.exception(f"{replica_str} failed to start: {e}")
-            return -1
+            return 70  # EX_SOFTWARE
 
         logger.debug(f"{replica_str} started with PID {self.process.pid}")
 
