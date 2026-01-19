@@ -7,7 +7,7 @@ import signal
 import subprocess
 import time
 
-from carnival.async_utils import wait_for_process_or_event
+from carnival.async_utils import kill_process_group, wait_for_process_or_event
 from carnival.config import CarnivalConfig, InitCommand
 from carnival.process import ProcessReplica
 
@@ -99,6 +99,7 @@ class CarnivalManager:
             *init_cmd.args,
             cwd=init_cmd.working_dir,
             stdin=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
         )
 
         await wait_for_process_or_event(proc, self.shutdown_event)
@@ -106,12 +107,7 @@ class CarnivalManager:
         # If shutdown was triggered during init, terminate and raise
         if self.shutdown_event.is_set():
             if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    proc.kill()
-                    await proc.wait()
+                await kill_process_group(proc, description=str(init_cmd), stop_timeout=5.0)
             raise InterruptedError("Shutdown requested during initialization")
         if proc.returncode:
             raise subprocess.CalledProcessError(proc.returncode, init_cmd.as_command_line())

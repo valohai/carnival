@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 
+from carnival.async_utils import kill_process_group
 from carnival.config import ServiceConfig
 
 logger = logging.getLogger(__name__)
@@ -190,23 +191,8 @@ class ProcessReplica:
         if self.process is None or self.process.returncode is not None:  # pragma: no cover
             return
 
-        pid = self.process.pid
-        logger.info(f"Terminating {replica_str} (PID {pid})")
-
-        try:
-            # Send SIGTERM to the entire process group (since we use start_new_session=True,
-            # the child is the process group leader and its PID equals the PGID)
-            os.killpg(pid, signal.SIGTERM)
-            # Wait for graceful shutdown
-            stop_timeout = self.config.stop_timeout_ms / 1000.0
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=stop_timeout)
-                logger.debug(f"{replica_str} terminated gracefully")
-            except asyncio.TimeoutError:
-                logger.warning(f"{replica_str} did not terminate, sending SIGKILL to process group")
-                os.killpg(pid, signal.SIGKILL)
-                await self.process.wait()
-        except ProcessLookupError:  # Process already exited
-            logger.debug(f"{replica_str} already exited")
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Error terminating {replica_str}: {e}")
+        await kill_process_group(
+            self.process,
+            description=replica_str,
+            stop_timeout=(self.config.stop_timeout_ms / 1000.0),
+        )
