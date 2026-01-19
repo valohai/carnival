@@ -104,7 +104,7 @@ async def test_run_init_failure_exits(tmp_path):
                 args=[str(run_canary)],
                 replicas=1,
                 restart=RestartPolicy.NO,
-            )
+            ),
         ],
     )
 

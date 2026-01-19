@@ -20,7 +20,7 @@ def simple_config():
                 args=["hello"],
                 replicas=1,
                 restart=RestartPolicy.NO,
-            )
+            ),
         ],
     )
 
@@ -37,7 +37,7 @@ def long_running_config():
                 args=["67"],
                 replicas=1,
                 restart=RestartPolicy.NO,
-            )
+            ),
         ],
     )
 

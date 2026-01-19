@@ -11,7 +11,7 @@ async def wait_for_process_or_event(
     proc: asyncio.subprocess.Process,
     event: asyncio.Event,
 ) -> None:
-    done, pending = await asyncio.wait(
+    _done, pending = await asyncio.wait(
         [
             asyncio.create_task(proc.wait()),
             asyncio.create_task(event.wait()),
@@ -43,7 +43,7 @@ async def kill_process_group(
         try:
             await asyncio.wait_for(process.wait(), timeout=stop_timeout)
             logger.debug(f"{description} terminated gracefully")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"{description} did not terminate, sending SIGKILL to process group")
             os.killpg(pid, signal.SIGKILL)
             await process.wait()

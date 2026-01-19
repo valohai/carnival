@@ -169,7 +169,7 @@ async def test_process_termination_timeout(basic_service_config, shutdown_event)
         nonlocal wait_call_count
         wait_call_count += 1
         if wait_call_count == 1:
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
         return None
 
     mock_process.wait = wait_with_timeout

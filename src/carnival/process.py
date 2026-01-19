@@ -88,7 +88,7 @@ class ProcessReplica:
 
             if not self._should_restart(exit_code):
                 logger.info(
-                    f"{replica_str} {_format_exit_status(exit_code)}, not restarting (policy: {self.config.restart})"
+                    f"{replica_str} {_format_exit_status(exit_code)}, not restarting (policy: {self.config.restart})",
                 )
                 break
 
@@ -96,7 +96,7 @@ class ProcessReplica:
             logger.info(
                 f"{replica_str} {_format_exit_status(exit_code)}, "
                 f"restarting in {self.config.restart_delay_ms}ms "
-                f"(restart {self.restart_count})"
+                f"(restart {self.restart_count})",
             )
 
             if self.config.restart_delay_ms:
@@ -107,7 +107,7 @@ class ProcessReplica:
                     )
                     # If we get here, shutdown was triggered
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Timeout is expected, continue to restart
                     pass
 
@@ -151,7 +151,7 @@ class ProcessReplica:
             stdout_task = stderr_task = None
 
         # Wait for process to complete or shutdown event
-        done, pending = await asyncio.wait(
+        _done, pending = await asyncio.wait(
             [
                 asyncio.create_task(self.process.wait()),
                 asyncio.create_task(self.shutdown_event.wait()),

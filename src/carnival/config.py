@@ -86,7 +86,7 @@ class ServiceConfig:
                 "stop_timeout_ms": expand_env_int_if_set(normalized.pop("stop_timeout_ms", None)),
                 "working_dir": expand_env_if_set(normalized.pop("working_dir", None)),
                 "critical": bool(normalized.pop("critical", None)),
-            }
+            },
         )
 
         if normalized:
@@ -113,7 +113,7 @@ class GlobalConfig:
         optionals = compact_dict_nones(
             {
                 "shutdown_timeout_ms": expand_env_int_if_set(normalized.pop("shutdown_timeout_ms", None)),
-            }
+            },
         )
         if normalized:
             raise ValueError(f"Unknown fields in global config: {sorted(normalized)}")

@@ -144,7 +144,7 @@ class CarnivalManager:
 
         try:
             # Wait for first completion
-            done, pending = await asyncio.wait(tasks_with_shutdown, return_when=asyncio.FIRST_COMPLETED)
+            done, _pending = await asyncio.wait(tasks_with_shutdown, return_when=asyncio.FIRST_COMPLETED)
 
             # Check if shutdown was triggered
             if shutdown_task in done:
@@ -191,7 +191,7 @@ class CarnivalManager:
                 timeout=shutdown_timeout,
             )
             logger.info("All services exited")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Timeout waiting for services to exit")
             # Cancel any remaining tasks
             for task in self.replica_tasks:
