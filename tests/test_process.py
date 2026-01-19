@@ -182,3 +182,20 @@ async def test_process_termination_timeout(basic_service_config, shutdown_event)
         assert mock_killpg.call_count == 2
         mock_killpg.assert_any_call(12345, signal.SIGTERM)
         mock_killpg.assert_any_call(12345, signal.SIGKILL)
+
+
+@pytest.mark.asyncio
+async def test_critical_service_triggers_shutdown(shutdown_event):
+    """Test that a critical service stopping triggers shutdown."""
+    config = ServiceConfig(
+        name="critical-service",
+        command="true",  # Exits immediately with 0
+        restart=RestartPolicy.NO,
+        critical=True,
+    )
+    replica = ProcessReplica(config, 0, 1, shutdown_event)
+
+    assert not shutdown_event.is_set()
+    await replica.run()
+    # Critical service exited, should trigger shutdown
+    assert shutdown_event.is_set()
