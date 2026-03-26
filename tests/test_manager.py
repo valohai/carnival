@@ -1,11 +1,13 @@
 """Tests for Carnival manager orchestration."""
 
 import asyncio
+import os
 from signal import Signals
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from carnival.async_utils import reap_zombies
 from carnival.config import CarnivalConfig, InitCommand, RestartPolicy, ServiceConfig
 from carnival.manager import CarnivalManager
 
@@ -131,3 +133,33 @@ async def test_init_command_interrupted_by_shutdown(caplog):
 
     assert exit_code == 1  # Should fail due to interrupted init
     assert "Shutdown requested during initialization" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_reap_zombies(caplog):
+    """Test that the zombie reaper reaps orphaned child processes."""
+    caplog.set_level("DEBUG")
+
+    # Fork a child that exits immediately, creating a zombie
+    child_pid = os.fork()
+    if child_pid == 0:
+        os._exit(42)
+
+    # Give the child time to exit and become a zombie
+    await asyncio.sleep(0.1)
+
+    # Run one iteration of the reaper (short interval so it fires quickly)
+    reaper = asyncio.create_task(reap_zombies(interval=0.05))
+    await asyncio.sleep(0.2)
+    reaper.cancel()
+    try:
+        await reaper
+    except asyncio.CancelledError:
+        pass
+
+    # The zombie should have been reaped
+    assert f"Reaped orphaned child process (PID {child_pid}" in caplog.text
+
+    # Verify the child is truly gone — waitpid should fail
+    with pytest.raises(ChildProcessError):
+        os.waitpid(child_pid, os.WNOHANG)  # noqa: ASYNC222

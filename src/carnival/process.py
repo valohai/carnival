@@ -86,17 +86,22 @@ class ProcessReplica:
                 # No need to log anything, we're shutting down
                 break
 
+            exit_status = _format_exit_status(exit_code)
+            exit_255_note = (
+                " (note: exit code 255 may indicate a race with the zombie reaper)" if exit_code == 255 else ""
+            )
+
             if not self._should_restart(exit_code):
                 logger.info(
-                    f"{replica_str} {_format_exit_status(exit_code)}, not restarting (policy: {self.config.restart})",
+                    f"{replica_str} {exit_status}, not restarting (policy: {self.config.restart}){exit_255_note}",
                 )
                 break
 
             self.restart_count += 1
             logger.info(
-                f"{replica_str} {_format_exit_status(exit_code)}, "
+                f"{replica_str} {exit_status}, "
                 f"restarting in {self.config.restart_delay_ms}ms "
-                f"(restart {self.restart_count})",
+                f"(restart {self.restart_count}){exit_255_note}",
             )
 
             if self.config.restart_delay_ms:
