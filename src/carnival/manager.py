@@ -7,7 +7,7 @@ import signal
 import subprocess
 import time
 
-from carnival.async_utils import kill_process_group, wait_for_process_or_event
+from carnival.async_utils import kill_process_group, reap_zombies, wait_for_process_or_event
 from carnival.config import CarnivalConfig, InitCommand
 from carnival.process import ProcessReplica
 
@@ -138,6 +138,9 @@ class CarnivalManager:
         if not self.running_replicas:  # pragma: no cover
             raise ValueError("No service replicas to monitor")
 
+        # Start zombie reaper for PID 1 scenarios (e.g. Docker containers)
+        reaper_task = asyncio.create_task(reap_zombies())
+
         # Wait for either shutdown event or all tasks to complete
         shutdown_task = asyncio.create_task(self.shutdown_event.wait())
         tasks_with_shutdown = [shutdown_task, *self.replica_tasks]
@@ -172,6 +175,12 @@ class CarnivalManager:
         except asyncio.CancelledError:
             logger.debug("Service monitoring cancelled")
             raise
+        finally:
+            reaper_task.cancel()
+            try:
+                await reaper_task
+            except asyncio.CancelledError:
+                pass
 
     async def _shutdown_services(self) -> None:
         """Gracefully shutdown all services."""

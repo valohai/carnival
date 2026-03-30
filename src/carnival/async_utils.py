@@ -7,6 +7,34 @@ import signal
 logger = logging.getLogger(__name__)
 
 
+async def reap_zombies(interval: float = 30.0) -> None:
+    """Periodically reap orphaned child processes.
+
+    When running as PID 1 (e.g. in a Docker container), grandchild processes
+    whose parents exit get reparented to us. This task reaps them so they
+    don't accumulate as zombies.
+
+    Note: This uses waitpid(-1), which can race with asyncio's child watcher
+    and steal the exit status of a managed subprocess. When this happens,
+    asyncio reports the process as having exited with code 255. A longer
+    polling interval reduces the likelihood of this race, but does not
+    eliminate it entirely. In practice, since this is primarily needed in
+    PID 1 / container scenarios where zombie accumulation is the bigger
+    concern, the trade-off is acceptable.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        while True:
+            try:
+                pid, status = os.waitpid(-1, os.WNOHANG)  # noqa: ASYNC222 (wnohang; will return immediately)
+                if pid == 0:
+                    break
+                logger.debug("Reaped orphaned child process (PID %d, status %d)", pid, status)
+            except ChildProcessError:
+                # No child processes at all
+                break
+
+
 async def wait_for_process_or_event(
     proc: asyncio.subprocess.Process,
     event: asyncio.Event,
